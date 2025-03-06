@@ -1,51 +1,101 @@
-1. Treinamento Offline Diário com NCF
-Objetivo:
-Treinar um modelo de Neural Collaborative Filtering (NCF) diariamente utilizando os dados de interações (pontuações, normalized_scores, etc.) dos jogadores com os slots.
+# Production Pipeline Guidelines for the Recommendation System
 
-Ações:
+This document provides detailed guidelines on how to maintain, update, and serve the recommendation system in production. It covers daily tasks, real-time operations, and special procedures for handling new users and new games.
 
-Preparação dos Dados:
-Consolidar dados históricos dos jogadores, focando em interações e scores.
-Treinamento do Modelo:
-Executar o treinamento do NCF com foco em aprender interações não-lineares entre jogadores e slots.
-Extração de Embeddings:
-Após o treinamento, extrair as representações latentes (embeddings) tanto dos jogadores quanto dos slots. Essas representações capturam as características essenciais dos perfis dos usuários e dos jogos.
-2. Criação do Índice com FAISS para Busca Rápida (ANN)
-Objetivo:
-Construir um índice de Approximate Nearest Neighbors (usando FAISS) com os embeddings dos slots para realizar buscas em tempo real.
+## 1. Daily Tasks
 
-Ações:
+### Data Collection & Preprocessing
+- **Collect New Data:**  
+  - Continuously ingest user interaction data (e.g., play durations, click logs, session data).
+  - Collect updated metadata for slots (games), if available.
+- **Data Cleaning & Transformation:**  
+  - Remove duplicates, handle missing values, and normalize interaction signals.
+  - Map user and game IDs to consecutive indices.
+- **Feature Engineering:**  
+  - Update derived features such as normalized scores, recency, frequency, etc.
+  
+### Model Retraining
+- **Schedule Daily Retraining:**  
+  - Run the training pipeline daily (or at another regular interval) using the most recent interaction data.
+  - Split data into training, validation, and test sets.
+  - Monitor validation loss and ranking metrics (Hit Rate, NDCG) to ensure model quality.
+  - Use early stopping to avoid overfitting.
+- **Embedding Extraction & FAISS Index Update:**  
+  - Once the model is retrained, extract updated slot embeddings.
+  - Rebuild and update the FAISS index with the new embeddings.
 
-Indexação:
-Indexar os embeddings dos slots usando FAISS para permitir buscas de alta velocidade.
-Atualização Diária:
-Atualizar o índice diariamente com os novos embeddings gerados pelo NCF.
-3. Recomendações em Tempo Real Baseadas em Embeddings
-Cenário de Uso:
-Quando um jogador joga um slot por aproximadamente 1 hora.
+### Reporting & Monitoring
+- **Generate Daily Reports:**  
+  - Log training and validation loss values.
+  - Record changes in ranking metrics and compare them against historical performance.
+- **Dashboard Updates:**  
+  - Update monitoring dashboards with new model metrics and performance KPIs (e.g., user engagement, CTR).
 
-Fluxo de Ação:
+## 2. Real-Time Operations
 
-Captura do Embedding:
-Identificar o slot jogado e extrair seu embedding pré-calculado.
-Busca de Slots Similares:
-Consultar o índice FAISS para encontrar os slots cujos embeddings são mais próximos, indicando similaridade.
-Personalização Adicional:
-Refinar a lista de slots recomendados combinando a busca de similaridade com o histórico e preferências do jogador. Isso pode incluir filtros de slots que o jogador ainda não experimentou ou um ajuste para balancear exploração e exploração.
-Vantagem:
-A consulta via FAISS é extremamente rápida (na ordem de milissegundos), permitindo uma resposta quase instantânea ao usuário.
+### Real-Time Recommendation Serving
+- **Instant Recommendations:**  
+  - Use the pre-built FAISS index for lightning-fast nearest neighbor queries based on slot embeddings.
+  - For a user who is currently active, quickly retrieve similar slots based on their most recent activity.
+- **Adaptive Filtering:**  
+  - Exclude slots the user has already interacted with using the `user_positive` mapping.
+- **API Serving:**  
+  - Deploy RESTful or GraphQL endpoints that serve recommendations in real time.
+  - Ensure low latency responses (in the order of milliseconds).
 
-4. Integração com o Sistema e Fluxo Contínuo
-Pipeline Diário:
+### Monitoring & Error Handling
+- **Real-Time Logging:**  
+  - Log real-time query metrics (e.g., response time, errors).
+  - Monitor usage patterns to detect anomalies or performance issues.
+- **Fallback Mechanisms:**  
+  - Implement fallback strategies (e.g., default popular slots) in case of index or service failure.
 
-Coleta de dados e treinamento do NCF.
-Extração e indexação dos embeddings.
-Atualização das recomendações offline que serão servidas rapidamente.
-Real-Time Layer:
+## 3. Handling New Users
 
-Sistema de monitoramento que, durante a sessão do usuário, detecta quando um slot foi jogado por um tempo relevante.
-Consulta imediata ao índice FAISS para gerar sugestões atualizadas e personalizadas.
-Feedback Loop:
+### Cold-Start Strategy
+- **Initial Onboarding Survey:**  
+  - Consider asking new users a few preference questions during registration.
+- **Popular Slots Recommendation:**  
+  - For users with no historical data, recommend a mix of popular slots or ones that are generally well-rated.
+- **Rapid Data Collection:**  
+  - Once the user interacts with a few slots, quickly incorporate their behavior into the system.
+- **Progressive Personalization:**  
+  - Gradually transition from cold-start recommendations to personalized recommendations as more data becomes available.
 
-Monitorar as interações em tempo real para coletar feedback sobre as recomendações.
-Esse feedback pode ser utilizado em ciclos futuros para ajustar o modelo, melhorando a acurácia e o balanço entre exploração e exploração.
+## 4. Handling New Games
+
+### New Game Introduction Process
+- **Metadata Collection:**  
+  - Gather detailed metadata about the new game (e.g., theme, volatility, RTP).
+- **Similarity Analysis:**  
+  - Compare the new game’s features to existing games to estimate initial similarity scores.
+- **Targeted Exploration:**  
+  - Push the new game as an exploratory recommendation to a small segment of users to collect interaction data.
+- **Feedback Loop:**  
+  - Monitor user engagement with the new game closely.
+  - Update its embedding and incorporate it into the FAISS index during the next retraining cycle.
+- **Gradual Integration:**  
+  - If the new game performs well, increase its visibility in recommendations across the platform.
+
+## 5. Continuous Improvement
+
+### A/B Testing & Feedback
+- **Conduct A/B Tests:**  
+  - Regularly test different recommendation strategies (e.g., varying the balance between model predictions and recent activity).
+  - Compare user engagement, conversion rates, and satisfaction metrics.
+- **User Feedback Integration:**  
+  - Incorporate user feedback to adjust recommendation algorithms.
+  - Refine cold-start, exploration, and personalization strategies over time.
+
+### System Maintenance & Scalability
+- **Modular Codebase:**  
+  - Ensure that the code is modular, well-documented, and easily maintainable.
+- **Automation & CI/CD:**  
+  - Automate the retraining, evaluation, and deployment pipelines.
+  - Set up CI/CD pipelines to quickly roll out updates and fixes.
+- **Scalability:**  
+  - Plan for scalability in both the training and serving components to handle increasing user loads.
+
+---
+
+By following these guidelines, our company can maintain a robust, state-of-the-art recommendation system that adapts to daily data changes, serves recommendations in real time, and efficiently handles new users and games. This pipeline ensures continuous improvement and a high-quality, personalized user experience.
